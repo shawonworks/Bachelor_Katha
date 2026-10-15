@@ -23,9 +23,25 @@ class Money {
 class Fmt {
   static final _full = DateFormat('d MMM y');
   static final _short = DateFormat('d MMM');
+  static final _dateTime = DateFormat('d MMM y, h:mm a');
+  static final _month = DateFormat('MMMM y');
+
   static String date(DateTime d) => _full.format(d);
   static String short(DateTime d) => _short.format(d);
+  static String dateTime(DateTime d) => _dateTime.format(d);
+  static String month(DateTime d) => _month.format(d);
   static DateTime dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+
+  /// Today / Yesterday / 12 Oct (adds the year when it is not the current year).
+  static String dayLabel(DateTime d) {
+    final now = DateTime.now();
+    final today = DateTime.utc(now.year, now.month, now.day);
+    final day = DateTime.utc(d.year, d.month, d.day);
+    final diff = today.difference(day).inDays;
+    if (diff == 0) return 'Today';
+    if (diff == 1) return 'Yesterday';
+    return d.year == now.year ? _short.format(d) : _full.format(d);
+  }
 }
 
 class ExpenseCategory {
@@ -36,18 +52,45 @@ class ExpenseCategory {
   final Color color;
 }
 
+/// Categories offered when adding an expense.
 const categories = <ExpenseCategory>[
+  ExpenseCategory('breakfast', 'Breakfast', Icons.free_breakfast_rounded, Color(0xFFF59E0B)),
+  ExpenseCategory('lunch', 'Lunch', Icons.lunch_dining_rounded, Color(0xFFF97316)),
+  ExpenseCategory('snacks', 'Evening Snacks', Icons.bakery_dining_rounded, Color(0xFFDB2777)),
+  ExpenseCategory('dinner', 'Dinner', Icons.dinner_dining_rounded, Color(0xFF7C3AED)),
+  ExpenseCategory('travel', 'Travel', Icons.directions_bus_rounded, Color(0xFF2563EB)),
+  ExpenseCategory('lend', 'Lend', Icons.handshake_rounded, Color(0xFF0D9488)),
+  ExpenseCategory('other', 'Others', Icons.category_rounded, Color(0xFF64748B)),
+];
+
+/// Old categories: no longer selectable, but old expenses still display correctly.
+const _legacyCategories = <ExpenseCategory>[
   ExpenseCategory('food', 'Food', Icons.restaurant_rounded, Color(0xFFF97316)),
   ExpenseCategory('groceries', 'Groceries', Icons.shopping_basket_rounded, Color(0xFF16A34A)),
   ExpenseCategory('outing', 'Outing', Icons.celebration_rounded, Color(0xFFDB2777)),
   ExpenseCategory('transport', 'Transport', Icons.directions_bus_rounded, Color(0xFF2563EB)),
   ExpenseCategory('bills', 'Bills & Rent', Icons.receipt_long_rounded, Color(0xFF7C3AED)),
   ExpenseCategory('shopping', 'Shopping', Icons.shopping_bag_rounded, Color(0xFF0891B2)),
-  ExpenseCategory('other', 'Other', Icons.category_rounded, Color(0xFF64748B)),
 ];
 
-ExpenseCategory categoryOf(String id) =>
-    categories.firstWhere((c) => c.id == id, orElse: () => categories.last);
+ExpenseCategory categoryOf(String id) {
+  for (final c in categories) {
+    if (c.id == id) return c;
+  }
+  for (final c in _legacyCategories) {
+    if (c.id == id) return c;
+  }
+  return categories.last;
+}
+
+/// Sensible default category from the time of day.
+String defaultCategoryNow() {
+  final h = DateTime.now().hour;
+  if (h < 11) return 'breakfast';
+  if (h < 16) return 'lunch';
+  if (h < 19) return 'snacks';
+  return 'dinner';
+}
 
 class Toast {
   static String message(Object e) {
