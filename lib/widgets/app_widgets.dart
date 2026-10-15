@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
-import 'package:intl/intl.dart';
 
 import '../core/app_theme.dart';
 import '../core/utils.dart';
@@ -62,18 +61,22 @@ class AppButton extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final child = loading
         ? SizedBox(
-            height: 22,
-            width: 22,
-            child: CircularProgressIndicator(
-                strokeWidth: 2.5, color: tonal ? cs.primary : cs.onPrimary),
-          )
+      height: 22,
+      width: 22,
+      child: CircularProgressIndicator(
+          strokeWidth: 2.5, color: tonal ? cs.primary : cs.onPrimary),
+    )
         : Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (icon != null) ...[Icon(icon, size: 20), const SizedBox(width: 8)],
-              Text(label, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-            ],
-          );
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (icon != null) ...[Icon(icon, size: 20), const SizedBox(width: 8)],
+        Flexible(
+          child: Text(label,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+        ),
+      ],
+    );
     final style = FilledButton.styleFrom(
       minimumSize: const Size.fromHeight(54),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -98,6 +101,8 @@ class AppTextField extends StatelessWidget {
     this.validator,
     this.inputFormatters,
     this.maxLength,
+    this.minLines,
+    this.maxLines = 1,
     this.capitalization = TextCapitalization.none,
     this.onChanged,
     this.onSubmitted,
@@ -114,6 +119,11 @@ class AppTextField extends StatelessWidget {
   final String? Function(String?)? validator;
   final List<TextInputFormatter>? inputFormatters;
   final int? maxLength;
+
+  /// For multi-line fields (e.g. notes): text wraps to the next line and the
+  /// box grows from [minLines] up to [maxLines], then scrolls inside.
+  final int? minLines;
+  final int? maxLines;
   final TextCapitalization capitalization;
   final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onSubmitted;
@@ -125,14 +135,16 @@ class AppTextField extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     OutlineInputBorder border([Color? c, double w = 1]) => OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: c == null ? BorderSide.none : BorderSide(color: c, width: w),
-        );
+      borderRadius: BorderRadius.circular(16),
+      borderSide: c == null ? BorderSide.none : BorderSide(color: c, width: w),
+    );
     return TextFormField(
       controller: controller,
       keyboardType: keyboardType,
       inputFormatters: inputFormatters,
       maxLength: maxLength,
+      minLines: minLines,
+      maxLines: maxLines,
       textCapitalization: capitalization,
       onChanged: onChanged,
       onFieldSubmitted: onSubmitted,
@@ -165,20 +177,20 @@ class SectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(4, 22, 4, 10),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(text,
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w800)),
-            ),
-            if (trailing != null) trailing!,
-          ],
+    padding: const EdgeInsets.fromLTRB(4, 22, 4, 10),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(text,
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w800)),
         ),
-      );
+        if (trailing != null) trailing!,
+      ],
+    ),
+  );
 }
 
 class EmptyState extends StatelessWidget {
@@ -268,8 +280,8 @@ class NetText extends StatelessWidget {
     final text = net > 0
         ? 'gets ${Money.fmt(net)}'
         : net < 0
-            ? 'owes ${Money.fmt(net)}'
-            : 'settled';
+        ? 'owes ${Money.fmt(net)}'
+        : 'settled';
     return Text(text,
         style: TextStyle(
             color: color, fontWeight: FontWeight.w800, fontSize: big ? 16 : 14));
@@ -287,8 +299,8 @@ class BalanceCard extends StatelessWidget {
     final colors = net > 0
         ? const [Color(0xFF047857), Color(0xFF10B981)]
         : net < 0
-            ? const [Color(0xFFBE123C), Color(0xFFFB7185)]
-            : const [Color(0xFF4338CA), Color(0xFF7C3AED)];
+        ? const [Color(0xFFBE123C), Color(0xFFFB7185)]
+        : const [Color(0xFF4338CA), Color(0xFF7C3AED)];
     final label = net > 0 ? 'You will get' : net < 0 ? 'You need to pay' : 'All settled up';
     return Container(
       padding: const EdgeInsets.all(22),
@@ -331,36 +343,75 @@ class _Stat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
-            const SizedBox(height: 2),
-            Text(value,
-                style: const TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15)),
-          ],
-        ),
-      );
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+        const SizedBox(height: 2),
+        Text(value,
+            style: const TextStyle(
+                color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15)),
+      ],
+    ),
+  );
 }
 
+/// One expense row: category icon, note/category, who paid, total amount and
+/// what it means for [me] (you get / you owe / not involved).
 class ExpenseTile extends StatelessWidget {
-  const ExpenseTile({super.key, required this.expense, required this.room, this.onTap});
+  const ExpenseTile({
+    super.key,
+    required this.expense,
+    required this.room,
+    required this.me,
+    this.onTap,
+  });
   final Expense expense;
   final Room room;
+  final String me;
   final VoidCallback? onTap;
-
-  static final _day = DateFormat('d MMM');
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final cat = categoryOf(expense.category);
-    final title = expense.title.isEmpty ? cat.label : expense.title;
+    final e = expense;
+    final cat = categoryOf(e.category);
+    final hasNote = e.title.isNotEmpty;
+    final title = hasNote ? e.title : cat.label;
+    String name(String id) => id == me ? 'You' : room.nameOf(id);
+
+    final String sub;
+    if (e.isLend && e.split.length == 1) {
+      sub = '${name(e.paidBy)} lent to ${name(e.split.first)}';
+    } else {
+      final paid = e.paidBy == me ? 'You paid' : 'Paid by ${room.nameOf(e.paidBy)}';
+      sub = hasNote ? '${cat.label} · $paid' : paid;
+    }
+
+    final addedBy = e.createdBy != me && e.createdBy != e.paidBy
+        ? 'Added by ${room.nameOf(e.createdBy)}'
+        : null;
+
+    final impact = e.impactOn(me);
+    final involved = e.paidBy == me || e.shareMap.containsKey(me);
+    final String impactText;
+    final Color impactColor;
+    if (impact > 0) {
+      impactText = 'You get ${Money.fmt(impact)}';
+      impactColor = AppTheme.green;
+    } else if (impact < 0) {
+      impactText = 'You owe ${Money.fmt(impact)}';
+      impactColor = AppTheme.red;
+    } else {
+      impactText = involved ? 'No balance change' : 'Not involved';
+      impactColor = cs.onSurfaceVariant;
+    }
+
     return AppCard(
       onTap: onTap,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           CircleAvatar(
             radius: 22,
@@ -373,16 +424,19 @@ class ExpenseTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(title,
-                    maxLines: 1,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
                 const SizedBox(height: 2),
-                Text(
-                  'Paid by ${room.nameOf(expense.paidBy)} · ${expense.split.length}/${room.members.length} people',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12.5),
-                ),
+                Text(sub,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12.5)),
+                if (addedBy != null)
+                  Text(addedBy,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: cs.onSurfaceVariant, fontSize: 11.5)),
               ],
             ),
           ),
@@ -390,11 +444,12 @@ class ExpenseTile extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(Money.fmt(expense.amount),
-                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
-              const SizedBox(height: 2),
-              Text(_day.format(expense.date),
-                  style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
+              Text(Money.fmt(e.amount),
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15.5)),
+              const SizedBox(height: 3),
+              Text(impactText,
+                  style: TextStyle(
+                      color: impactColor, fontWeight: FontWeight.w700, fontSize: 11.5)),
             ],
           ),
         ],
@@ -403,12 +458,81 @@ class ExpenseTile extends StatelessWidget {
   }
 }
 
+/// Pulsing placeholder shown while data loads.
+class AppSkeleton extends StatefulWidget {
+  const AppSkeleton({super.key, this.width, required this.height, this.radius = 10});
+  final double? width;
+  final double height;
+  final double radius;
+
+  @override
+  State<AppSkeleton> createState() => _AppSkeletonState();
+}
+
+class _AppSkeletonState extends State<AppSkeleton> with SingleTickerProviderStateMixin {
+  late final AnimationController _c =
+  AnimationController(vsync: this, duration: const Duration(milliseconds: 900))
+    ..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return FadeTransition(
+      opacity: Tween<double>(begin: 0.35, end: 0.9).animate(_c),
+      child: Container(
+        width: widget.width,
+        height: widget.height,
+        decoration: BoxDecoration(
+          color: cs.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(widget.radius),
+        ),
+      ),
+    );
+  }
+}
+
+/// A list of skeleton cards.
+class SkeletonList extends StatelessWidget {
+  const SkeletonList({super.key, this.count = 4});
+  final int count;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      for (var i = 0; i < count; i++)
+        const Padding(
+          padding: EdgeInsets.only(bottom: 10),
+          child: AppCard(
+            child: Row(children: [
+              AppSkeleton(width: 44, height: 44, radius: 22),
+              SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  AppSkeleton(width: 140, height: 14),
+                  SizedBox(height: 8),
+                  AppSkeleton(width: 90, height: 11),
+                ]),
+              ),
+              AppSkeleton(width: 56, height: 16),
+            ]),
+          ),
+        ),
+    ],
+  );
+}
+
 Future<bool> confirm(
-  String title,
-  String message, {
-  String confirmText = 'Confirm',
-  bool destructive = false,
-}) async {
+    String title,
+    String message, {
+      String confirmText = 'Confirm',
+      bool destructive = false,
+    }) async {
   final r = await Get.dialog<bool>(
     AlertDialog(
       title: Text(title),
