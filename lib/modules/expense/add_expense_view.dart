@@ -16,6 +16,7 @@ class AddExpenseView extends GetView<AddExpenseController> {
     final room = controller.rc.room.value!;
     final me = controller.rc.uid;
     String who(String id) => id == me ? 'You' : room.nameOf(id);
+    String chip(String id) => id == me ? '${room.nameOf(id)} (You)' : room.nameOf(id);
 
     return Scaffold(
       appBar: AppBar(title: Text(controller.isEdit ? 'Edit expense' : 'Add expense')),
@@ -40,64 +41,94 @@ class AddExpenseView extends GetView<AddExpenseController> {
                 validator: (v) => Money.parse(v ?? '') == null ? 'Enter a valid amount' : null,
               ),
               const SizedBox(height: 12),
+              // Multi-line note: long text wraps to the next line and the box grows (up to 4 lines).
               AppTextField(
                 controller: controller.titleC,
                 label: 'Note (optional)',
                 hint: 'e.g. Dinner, rice & oil',
                 icon: Icons.edit_note_rounded,
-                maxLength: 60,
+                maxLength: 120,
+                minLines: 1,
+                maxLines: 4,
+                keyboardType: TextInputType.text,
+                action: TextInputAction.done,
                 capitalization: TextCapitalization.sentences,
               ),
               const SectionTitle('Category'),
-              Obx(() => Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final c in categories)
-                    ChoiceChip(
-                      avatar: Icon(c.icon, size: 18, color: c.color),
-                      label: Text(c.label),
-                      selected: controller.category.value == c.id,
-                      onSelected: (_) => controller.category.value = c.id,
-                    ),
-                ],
-              )),
-              const SectionTitle('Paid by'),
-              Obx(() => Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final id in room.ids)
-                    ChoiceChip(
-                      label: Text(id == me ? '${room.nameOf(id)} (You)' : room.nameOf(id)),
-                      selected: controller.paidBy.value == id,
-                      onSelected: (_) => controller.paidBy.value = id,
-                    ),
-                ],
-              )),
-              const SectionTitle('Split'),
-              Obx(() => SizedBox(
-                width: double.infinity,
-                child: SegmentedButton<String>(
-                  showSelectedIcon: false,
-                  segments: const [
-                    ButtonSegment(
-                        value: 'equal',
-                        icon: Icon(Icons.balance_rounded),
-                        label: Text('Equal')),
-                    ButtonSegment(
-                        value: 'custom',
-                        icon: Icon(Icons.tune_rounded),
-                        label: Text('Custom')),
+              Obx(() {
+                final current = controller.category.value;
+                // Old categories (from earlier expenses) stay selectable while editing.
+                final list = [
+                  ...categories,
+                  if (!categories.any((c) => c.id == current) && current.isNotEmpty)
+                    categoryOf(current),
+                ];
+                return Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final c in list)
+                      ChoiceChip(
+                        avatar: Icon(c.icon, size: 18, color: c.color),
+                        label: Text(c.label),
+                        selected: current == c.id,
+                        onSelected: (_) => controller.setCategory(c.id),
+                      ),
                   ],
-                  selected: {controller.splitMode.value},
-                  onSelectionChanged: (s) => controller.setMode(s.first),
-                ),
+                );
+              }),
+              Obx(() => SectionTitle(controller.isLend ? 'Lent by' : 'Paid by')),
+              Obx(() => Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final id in controller.candidateIds)
+                    ChoiceChip(
+                      label: Text(chip(id)),
+                      selected: controller.paidBy.value == id,
+                      onSelected: (_) => controller.setPaidBy(id),
+                    ),
+                ],
               )),
-              const SizedBox(height: 14),
-              Obx(() => controller.isCustom
-                  ? _customSection(context, room.ids, who)
-                  : _equalSection(context, room.ids, me, room.nameOf)),
+              Obx(() {
+                if (controller.isLend) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SectionTitle('Lent to'),
+                      _lendSection(context, who, chip),
+                    ],
+                  );
+                }
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SectionTitle('Split'),
+                    SizedBox(
+                      width: double.infinity,
+                      child: SegmentedButton<String>(
+                        showSelectedIcon: false,
+                        segments: const [
+                          ButtonSegment(
+                              value: 'equal',
+                              icon: Icon(Icons.balance_rounded),
+                              label: Text('Equal')),
+                          ButtonSegment(
+                              value: 'custom',
+                              icon: Icon(Icons.tune_rounded),
+                              label: Text('Custom')),
+                        ],
+                        selected: {controller.splitMode.value},
+                        onSelectionChanged: (s) => controller.setMode(s.first),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    controller.isCustom
+                        ? _customSection(context, who)
+                        : _equalSection(context, chip),
+                  ],
+                );
+              }),
               const SectionTitle('Date'),
               Obx(() => AppCard(
                 onTap: () => controller.pickDate(context),
@@ -125,13 +156,51 @@ class AddExpenseView extends GetView<AddExpenseController> {
     );
   }
 
-  // ---------------- Equal split (unchanged behaviour) ----------------
-  Widget _equalSection(
+  // ---------------- Lend ----------------
+  Widget _lendSection(
       BuildContext context,
-      List<String> ids,
-      String me,
-      String Function(String) nameOf,
+      String Function(String) who,
+      String Function(String) chip,
       ) {
+    final cs = Theme.of(context).colorScheme;
+    final payer = controller.paidBy.value;
+    final to = controller.lendTo.value;
+    final amt = controller.amountPaisa.value;
+    final options = controller.candidateIds.where((id) => id != payer).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (options.isEmpty)
+          Text('There is nobody else in the room to lend to.',
+              style: TextStyle(color: cs.onSurfaceVariant))
+        else
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final id in options)
+                ChoiceChip(
+                  label: Text(chip(id)),
+                  selected: to == id,
+                  onSelected: (_) => controller.lendTo.value = id,
+                ),
+            ],
+          ),
+        if (to.isNotEmpty && amt > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Text(
+              '${who(payer)} lent ${Money.fmt(amt)} to ${who(to)}. The full amount counts as ${who(to)}\'s due.',
+              style: TextStyle(color: cs.primary, fontWeight: FontWeight.w700),
+            ),
+          ),
+      ],
+    );
+  }
+
+  // ---------------- Equal split ----------------
+  Widget _equalSection(BuildContext context, String Function(String) chip) {
     final cs = Theme.of(context).colorScheme;
     final n = controller.split.length;
     final amt = controller.amountPaisa.value;
@@ -150,9 +219,9 @@ class AddExpenseView extends GetView<AddExpenseController> {
           spacing: 8,
           runSpacing: 8,
           children: [
-            for (final id in ids)
+            for (final id in controller.candidateIds)
               FilterChip(
-                label: Text(id == me ? '${nameOf(id)} (You)' : nameOf(id)),
+                label: Text(chip(id)),
                 selected: controller.split.contains(id),
                 onSelected: (_) => controller.toggleSplit(id),
               ),
@@ -171,8 +240,9 @@ class AddExpenseView extends GetView<AddExpenseController> {
   }
 
   // ---------------- Custom split ----------------
-  Widget _customSection(BuildContext context, List<String> ids, String Function(String) who) {
+  Widget _customSection(BuildContext context, String Function(String) who) {
     final cs = Theme.of(context).colorScheme;
+    final ids = controller.candidateIds;
     final amt = controller.amountPaisa.value;
     final assigned = controller.assigned;
     final rem = controller.remaining;
